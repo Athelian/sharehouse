@@ -1,23 +1,7 @@
-#![allow(unused_variables)]
+#[macro_use]
 extern crate juniper;
-use juniper::{
-    graphql_object, EmptySubscription, FieldResult, GraphQLEnum, GraphQLInputObject, GraphQLObject,
-    ScalarValue,
-};
-use std::fmt::Display;
 
-struct DatabasePool;
-impl DatabasePool {
-    fn get_connection(&self) -> FieldResult<DatabasePool> {
-        Ok(DatabasePool)
-    }
-    fn find_human(&self, _id: &str) -> FieldResult<Human> {
-        Err("")?
-    }
-    fn insert_human(&self, _human: &NewHuman) -> FieldResult<Human> {
-        Err("")?
-    }
-}
+use juniper::FieldResult;
 
 #[derive(GraphQLEnum)]
 enum Episode {
@@ -46,7 +30,7 @@ struct NewHuman {
 }
 
 // Now, we create our root Query and Mutation types with resolvers by using the
-// object macro.
+// graphql_object! macro.
 // Objects can have contexts that allow accessing shared state like a database
 // pool.
 
@@ -60,22 +44,17 @@ impl juniper::Context for Context {}
 
 struct Query;
 
-#[graphql_object(
-    // Here we specify the context type for the object.
-    // We need to do this in every type that
-    // needs access to the context.
-    context = Context,
-)]
-impl Query {
-    fn apiVersion() -> &'static str {
+graphql_object!(Query: Context |&self| {
+
+    field apiVersion() -> &str {
         "1.0"
     }
 
     // Arguments to resolvers can either be simple types or input objects.
-    // To gain access to the context, we specify a argument
-    // that is a reference to the Context type.
-    // Juniper automatically injects the correct context here.
-    fn human(context: &Context, id: String) -> FieldResult<Human> {
+    // The executor is a special (optional) argument that allows accessing the context.
+    field human(&executor, id: String) -> FieldResult<Human> {
+        // Get the context from the executor.
+        let context = executor.context();
         // Get a db connection.
         let connection = context.pool.get_connection()?;
         // Execute a db query.
@@ -84,39 +63,23 @@ impl Query {
         // Return the result.
         Ok(human)
     }
-}
-
-// Now, we do the same for our Mutation type.
+});
 
 struct Mutation;
 
-#[graphql_object(
-    context = Context,
-    // If we need to use `ScalarValue` parametrization explicitly somewhere
-    // in the object definition (like here in `FieldResult`), we could
-    // declare an explicit type parameter for that, and specify it.
-    scalar = S: ScalarValue + Display,
-)]
-impl Mutation {
-    fn createHuman<S: ScalarValue + Display>(
-        context: &Context,
-        new_human: NewHuman,
-    ) -> FieldResult<Human, S> {
-        let db = context
-            .pool
-            .get_connection()
-            .map_err(|e| e.map_scalar_value())?;
-        let human: Human = db
-            .insert_human(&new_human)
-            .map_err(|e| e.map_scalar_value())?;
+graphql_object!(Mutation: Context |&self| {
+
+    field createHuman(&executor, new_human: NewHuman) -> FieldResult<Human> {
+        let db = executor.context().pool.get_connection()?;
+        let human: Human = db.insert_human(&new_human)?;
         Ok(human)
     }
-}
+});
 
-// A root schema consists of a query, a mutation, and a subscription.
+// A root schema consists of a query and a mutation.
 // Request queries can be executed against a RootNode.
-type Schema = juniper::RootNode<'static, Query, Mutation, EmptySubscription<Context>>;
+type Schema = juniper::RootNode<'static, Query, Mutation>;
 
 fn main() {
-    let _ = Schema::new(Query, Mutation, EmptySubscription::new());
+    println!("Hello, world!");
 }
